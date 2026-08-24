@@ -182,7 +182,7 @@ async function streamLoad(client) {
                 start = i + 1;
                 await execStatement(client, stmt);
                 executed++;
-                if (executed % 200 === 0)
+                if (executed % 50 === 0)
                     console.log(`[loadDump] ${executed} statements executed...`);
                 i++;
                 continue;
@@ -204,41 +204,72 @@ async function streamLoad(client) {
     }
     return executed;
 }
-async function main() {
-    const client = new pg_1.Client({ connectionString: process.env.DATABASE_URL });
+function makeClient() {
+    return new pg_1.Client({
+        connectionString: process.env.DATABASE_URL,
+        keepAlive: true,
+        keepAliveInitialDelayMillis: 5000,
+        // Client-side safety net: some managed Postgres connections silently
+        // drop an idle-but-open socket (no RST/FIN reaches us), which would
+        // otherwise hang an awaited query forever. Fail fast instead so we can
+        // reconnect and retry (the whole load is idempotent).
+        query_timeout: 30000,
+        statement_timeout: 30000,
+    });
+}
+async function attempt() {
+    const client = makeClient();
     await client.connect();
-    const already = await client
-        .query("SELECT to_regclass('public.agreements') AS reg")
-        .catch(() => ({ rows: [{ reg: null }] }));
-    if (already.rows[0].reg) {
-        const { rows } = await client.query('SELECT count(*)::int AS n FROM public.agreements');
-        if (rows[0].n > 0) {
-            console.log(`[loadDump] agreements table already has ${rows[0].n} row(s) — skipping seed load.`);
-            await client.end();
+    try {
+        const already = await client
+            .query("SELECT to_regclass('public.agreements') AS reg")
+            .catch(() => ({ rows: [{ reg: null }] }));
+        if (already.rows[0].reg) {
+            const { rows } = await client.query('SELECT count(*)::int AS n FROM public.agreements');
+            if (rows[0].n > 0) {
+                console.log(`[loadDump] agreements table already has ${rows[0].n} row(s) — skipping seed load.`);
+                return 'skipped';
+            }
+        }
+        if (!fs_1.default.existsSync(DUMP_PATH)) {
+            console.log('[loadDump] no seed dump found at', DUMP_PATH, '— skipping (fresh empty DB, run migrate instead).');
+            return 'skipped';
+        }
+        console.log('[loadDump] database looks empty — streaming seed dump...');
+        await client.query('BEGIN');
+        let count = 0;
+        try {
+            count = await streamLoad(client);
+            await client.query('COMMIT');
+        }
+        catch (err) {
+            await client.query('ROLLBACK').catch(() => { });
+            throw err;
+        }
+        console.log(`[loadDump] executed ${count} statements.`);
+        await client.query('SET search_path = public');
+        const { rows } = await client.query('SELECT count(*)::int AS n FROM products');
+        console.log(`[loadDump] done — products table now has ${rows[0].n} row(s).`);
+        return 'done';
+    }
+    finally {
+        await client.end().catch(() => { });
+    }
+}
+async function main() {
+    const MAX_ATTEMPTS = 3;
+    for (let n = 1; n <= MAX_ATTEMPTS; n++) {
+        try {
+            await attempt();
             return;
         }
+        catch (err) {
+            console.error(`[loadDump] attempt ${n}/${MAX_ATTEMPTS} failed:`, err);
+            if (n === MAX_ATTEMPTS)
+                throw err;
+            console.log('[loadDump] retrying from scratch (load is idempotent — a fresh empty DB is safe to redo)...');
+        }
     }
-    if (!fs_1.default.existsSync(DUMP_PATH)) {
-        console.log('[loadDump] no seed dump found at', DUMP_PATH, '— skipping (fresh empty DB, run migrate instead).');
-        await client.end();
-        return;
-    }
-    console.log('[loadDump] database looks empty — streaming seed dump...');
-    await client.query('BEGIN');
-    let count = 0;
-    try {
-        count = await streamLoad(client);
-        await client.query('COMMIT');
-    }
-    catch (err) {
-        await client.query('ROLLBACK').catch(() => { });
-        throw err;
-    }
-    console.log(`[loadDump] executed ${count} statements.`);
-    await client.query('SET search_path = public');
-    const { rows } = await client.query('SELECT count(*)::int AS n FROM products');
-    console.log(`[loadDump] done — products table now has ${rows[0].n} row(s).`);
-    await client.end();
 }
 main().catch((err) => {
     console.error('[loadDump] FAILED:', err);
