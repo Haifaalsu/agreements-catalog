@@ -1,0 +1,43 @@
+version: "3.9"
+
+# One-command local/staging run: `docker compose up --build`
+# Then, in a separate shell, run once (creates schema + admin user):
+#   docker compose exec app node dist/scripts/migrate.js
+#   docker compose exec app node dist/scripts/createAdmin.js "الاسم الكامل" admin@example.com "كلمة المرور القوية"
+#   docker compose exec app node dist/scripts/seedSynonyms.js
+# ثم استورد ملفات Excel الحقيقية من خلال لوحة /admin.html كما في بيئة التطوير.
+
+services:
+  db:
+    image: postgres:16
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: app_user
+      POSTGRES_PASSWORD: app_pass_change_me
+      POSTGRES_DB: agreements_catalog
+    volumes:
+      - db_data:/var/lib/postgresql/data
+    ports:
+      - "5432:5432"
+
+  app:
+    build:
+      context: .
+      dockerfile: backend/Dockerfile
+    restart: unless-stopped
+    depends_on:
+      - db
+    environment:
+      DATABASE_URL: postgresql://app_user:app_pass_change_me@db:5432/agreements_catalog
+      PORT: 4000
+      JWT_SECRET: change_me_to_a_long_random_string
+      NODE_ENV: production
+      STORAGE_DIR: ./storage/uploads
+    ports:
+      - "4000:4000"
+    volumes:
+      - uploads_data:/app/backend/storage/uploads
+
+volumes:
+  db_data:
+  uploads_data:
