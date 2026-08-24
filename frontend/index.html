@@ -1,0 +1,126 @@
+<!DOCTYPE html>
+<html lang="ar" dir="rtl">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>دليل منتجات وخدمات الاتفاقيات الإطارية</title>
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='7' fill='%230f5c4c'/%3E%3Ctext x='16' y='22' font-size='15' text-anchor='middle' fill='white' font-family='sans-serif'%3Eهع%3C/text%3E%3C/svg%3E">
+<link rel="stylesheet" href="/css/style.css">
+</head>
+<body dir="rtl">
+
+<header class="site-header">
+  <div class="site-header__inner">
+    <div class="brand">
+      <!-- Logo placeholder — CSS variables only (--brand-logo-bg, --brand-primary*)
+           so the real mark/colors can be dropped in later without touching markup. -->
+      <div class="brand__logo" title="شعار مؤقت — بانتظار الهوية الرسمية">هع</div>
+      <div class="brand__text">
+        <span class="org-name">الهيئة العامة لتنظيم الإعلام<span class="badge-placeholder">شعار مؤقت</span></span>
+        <span class="org-name-en">General Authority for Media Regulation</span>
+      </div>
+    </div>
+    <div class="header-spacer"></div>
+    <nav class="header-nav">
+      <a href="/index.html" class="active">الرئيسية</a>
+      <a href="#about">عن الدليل</a>
+    </nav>
+  </div>
+</header>
+
+<section class="hero">
+  <h1>دليل منتجات وخدمات الاتفاقيات الإطارية</h1>
+  <p class="subtitle">ابحث في منتجات وخدمات السوق الإلكتروني والاتفاقيات الإطارية</p>
+  <div class="search-box-wrap">
+    <div class="search-box">
+      <svg class="search-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="7"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
+      <input id="searchInput" type="text" placeholder="اكتب وصف المنتج أو الخدمة للبحث…" autocomplete="off">
+      <button class="search-btn" id="searchBtn" aria-label="بحث">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="7"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
+      </button>
+    </div>
+    <div class="configurator-link-wrap" id="configuratorLinkWrap"></div>
+  </div>
+  <div class="hero-stats" id="heroStats">
+    <div class="hero-stat"><span class="icon">📦</span><div><div class="num" id="statProducts">—</div><div class="lbl">إجمالي المنتجات والخدمات</div></div></div>
+    <div class="hero-stat"><span class="icon">📄</span><div><div class="num" id="statAgreements">—</div><div class="lbl">عدد الاتفاقيات</div></div></div>
+  </div>
+</section>
+
+<div class="content-area">
+  <div id="preSearchEmpty" class="pre-search-empty">
+    <div class="big-icon">🔍</div>
+    ابدأ الكتابة أعلاه للبحث في منتجات وخدمات الاتفاقيات الإطارية
+  </div>
+
+  <div id="resultsArea" class="hidden">
+    <div class="results-toolbar">
+      <div class="results-count" id="resultsCount"></div>
+      <div class="toolbar-actions">
+        <button class="btn-filters" id="filtersToggleBtn">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="4" y1="6" x2="20" y2="6"/><line x1="8" y1="12" x2="16" y2="12"/><line x1="11" y1="18" x2="13" y2="18"/></svg>
+          فلاتر
+          <span class="badge-count hidden" id="activeFilterBadge">0</span>
+        </button>
+        <button class="btn-export" id="exportBtn" title="تصدير النتائج الحالية إلى CSV">
+          <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 3v12"/><path d="M7 10l5 5 5-5"/><path d="M5 21h14"/></svg>
+          تصدير النتائج
+        </button>
+      </div>
+    </div>
+    <div id="activeFilterChips" class="active-chips"></div>
+    <div id="resultsTableWrap"></div>
+    <div class="pagination" id="pagination"></div>
+  </div>
+</div>
+
+<footer id="about" class="source-info" style="max-width:1000px; margin:0 auto 40px; padding:16px 20px; border-radius:8px;">
+  <strong style="color:var(--text);">عن الدليل</strong> — منصة بحث موحّدة تتيح للموظفين البحث السريع عبر جميع المنتجات والخدمات المتوفرة ضمن الاتفاقيات الإطارية للهيئة، دون الحاجة لفتح ملفات Excel أو أنظمة الشراء. تُعرض بيانات كل اتفاقية كما وردت في مصدرها الأصلي دون أي تعديل.
+</footer>
+
+<!-- Product detail drawer -->
+<div class="drawer-overlay" id="drawerOverlay">
+  <div class="drawer" id="drawer" role="dialog" aria-modal="true">
+    <div class="drawer-header">
+      <div>
+        <h2 id="drawerTitleAr">—</h2>
+        <div class="en" id="drawerTitleEn"></div>
+      </div>
+      <button class="drawer-close" id="drawerClose" aria-label="إغلاق">×</button>
+    </div>
+    <div class="drawer-body" id="drawerBody"></div>
+  </div>
+</div>
+
+<!-- Filters drawer -->
+<div class="drawer-overlay" id="filtersOverlay">
+  <div class="drawer" id="filtersDrawer" role="dialog" aria-modal="true" style="width:min(380px,100%);">
+    <div class="filter-drawer-header">
+      <h2>الفلاتر</h2>
+      <button class="drawer-close" id="filtersClose" aria-label="إغلاق">×</button>
+    </div>
+    <div class="filter-drawer-body" id="filterDrawerBody"></div>
+    <div class="filter-drawer-footer">
+      <button class="btn secondary" id="resetFiltersBtn">إعادة تعيين</button>
+      <button class="btn" id="applyFiltersBtn">تطبيق الفلاتر</button>
+    </div>
+  </div>
+</div>
+
+<!-- Digital Circuits Configurator modal -->
+<div class="configurator-modal-overlay" id="configuratorOverlay">
+  <div class="configurator-modal" role="dialog" aria-modal="true">
+    <div class="configurator-modal-header">
+      <h2>مُهيّئ خدمات الدوائر الرقمية</h2>
+      <button class="drawer-close" id="configuratorClose" aria-label="إغلاق">×</button>
+    </div>
+    <div class="configurator-modal-body" id="configuratorBody"></div>
+  </div>
+</div>
+
+<script src="/js/api.js"></script>
+<script src="/js/product-detail.js"></script>
+<script src="/js/configurator.js"></script>
+<script src="/js/search.js"></script>
+</body>
+</html>

@@ -1,0 +1,72 @@
+<!DOCTYPE html>
+<html lang="ar" dir="rtl">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>لوحة الإدارة — دليل منتجات وخدمات الاتفاقيات الإطارية</title>
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='7' fill='%230f5c4c'/%3E%3Ctext x='16' y='22' font-size='15' text-anchor='middle' fill='white' font-family='sans-serif'%3Eهع%3C/text%3E%3C/svg%3E">
+<link rel="stylesheet" href="/css/style.css">
+</head>
+<body dir="rtl">
+
+<!-- Login screen -->
+<div class="login-shell" id="loginShell">
+  <div class="login-box">
+    <div class="brand" style="justify-content:center; margin-bottom:6px;">
+      <div class="brand__logo">هع</div>
+    </div>
+    <h1>لوحة إدارة دليل الاتفاقيات الإطارية</h1>
+    <div class="form-row">
+      <label>البريد الإلكتروني</label>
+      <input type="email" id="loginEmail" placeholder="admin@example.gov.sa">
+    </div>
+    <div class="form-row">
+      <label>كلمة المرور</label>
+      <input type="password" id="loginPassword">
+    </div>
+    <button class="btn" id="loginBtn" style="width:100%;">تسجيل الدخول</button>
+    <p class="small-text error-state" id="loginError" style="display:none; margin-top:10px;"></p>
+  </div>
+</div>
+
+<!-- Admin shell (shown after login) -->
+<div id="adminShell" class="hidden">
+  <header class="site-header">
+    <div class="site-header__inner">
+      <div class="brand">
+        <div class="brand__logo">هع</div>
+        <div class="brand__text">
+          <span class="org-name">لوحة الإدارة<span class="badge-placeholder">شعار مؤقت</span></span>
+          <span class="org-name-en">Admin Console</span>
+        </div>
+      </div>
+      <div class="header-spacer"></div>
+      <nav class="header-nav">
+        <a href="/index.html">دليل المنتجات (عرض المستخدم)</a>
+        <span class="muted small-text" id="whoami"></span>
+        <button class="btn secondary small" id="logoutBtn">خروج</button>
+      </nav>
+    </div>
+  </header>
+
+  <div class="admin-shell">
+    <div class="admin-tabs">
+      <button data-tab="agreements" class="active">الاتفاقيات</button>
+      <button data-tab="import">استيراد ملف جديد</button>
+      <button data-tab="sources">مصادر البيانات</button>
+      <button data-tab="synonyms">المرادفات</button>
+      <button data-tab="logs">سجل العمليات</button>
+    </div>
+
+    <div id="tab-agreements" class="tab-panel"></div>
+    <div id="tab-import" class="tab-panel hidden"></div>
+    <div id="tab-sources" class="tab-panel hidden"></div>
+    <div id="tab-synonyms" class="tab-panel hidden"></div>
+    <div id="tab-logs" class="tab-panel hidden"></div>
+  </div>
+</div>
+
+<script src="/js/api.js"></script>
+<script src="/js/admin.js"></script>
+</body>
+</html>
