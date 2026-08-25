@@ -24,6 +24,14 @@ const state = {
   hasSearched: false,
 };
 let lastFacets = null;
+// Facets (filter option lists + counts) only ever depend on q + filters, not
+// on page/pageSize/sort — and computing them is much heavier on the server
+// than the main search query (it runs several extra grouped aggregate
+// queries). Re-fetching them on every keystroke/page-change was needless
+// load, so they're now fetched lazily (see ensureFacetsFresh) only when the
+// filters drawer is actually opened, and only if the underlying q/filters
+// have changed since the last fetch.
+let lastFacetsKey = null;
 
 function buildSearchParams(overrides = {}) {
   const p = { q: state.q, page: state.page, pageSize: state.pageSize, sort: state.sort, ...overrides };
@@ -50,12 +58,12 @@ async function runSearch() {
   const countEl = document.getElementById('resultsCount');
   wrap.innerHTML = `<div class="loading-state"><div class="spinner"></div><p>جارٍ البحث…</p></div>`;
   try {
-    const [searchRes, facets] = await Promise.all([
-      Api.search(buildSearchParams()),
-      Api.facets(buildSearchParams()),
-    ]);
+    // Facets are intentionally NOT fetched here — they're heavier (several
+    // grouped aggregate queries) than the main search query, and their
+    // values only matter once the filters drawer is actually opened. See
+    // ensureFacetsFresh().
+    const searchRes = await Api.search(buildSearchParams());
     if (mySeq !== searchSeq) return;
-    lastFacets = facets;
     renderResultsTable(searchRes);
     renderChips();
     updateFilterBadge();
@@ -225,34 +233,53 @@ function filterFieldHtml(g, facets) {
   </div>`;
 }
 
-function openFiltersDrawer() {
+function renderFiltersBody(facets) {
   const body = document.getElementById('filterDrawerBody');
-  if (!lastFacets) {
-    body.innerHTML = `<p class="no-filters-note">ابحث أولًا لعرض الفلاتر المتاحة.</p>`;
-  } else {
-    const primaryHtml = PRIMARY_FILTERS.map((g) => filterFieldHtml(g, lastFacets)).join('');
-    const moreHtml = MORE_FILTERS.map((g) => filterFieldHtml(g, lastFacets)).join('');
-    const hasPrimary = primaryHtml.trim().length > 0;
-    const hasMore = moreHtml.trim().length > 0;
-    body.innerHTML =
-      (hasPrimary ? primaryHtml : '') +
-      (hasMore ? `
-        <button class="more-filters-toggle" id="moreFiltersToggle">فلاتر إضافية ▾</button>
-        <div class="more-filters-body" id="moreFiltersBody">${moreHtml}</div>
-      ` : '') +
-      (!hasPrimary && !hasMore ? `<p class="no-filters-note">لا تتوفر فلاتر إضافية لنتائج البحث الحالية.</p>` : '');
+  const primaryHtml = PRIMARY_FILTERS.map((g) => filterFieldHtml(g, facets)).join('');
+  const moreHtml = MORE_FILTERS.map((g) => filterFieldHtml(g, facets)).join('');
+  const hasPrimary = primaryHtml.trim().length > 0;
+  const hasMore = moreHtml.trim().length > 0;
+  body.innerHTML =
+    (hasPrimary ? primaryHtml : '') +
+    (hasMore ? `
+      <button class="more-filters-toggle" id="moreFiltersToggle">فلاتر إضافية ▾</button>
+      <div class="more-filters-body" id="moreFiltersBody">${moreHtml}</div>
+    ` : '') +
+    (!hasPrimary && !hasMore ? `<p class="no-filters-note">لا تتوفر فلاتر إضافية لنتائج البحث الحالية.</p>` : '');
 
-    document.getElementById('moreFiltersToggle')?.addEventListener('click', () => {
-      document.getElementById('moreFiltersBody').classList.toggle('open');
+  document.getElementById('moreFiltersToggle')?.addEventListener('click', () => {
+    document.getElementById('moreFiltersBody').classList.toggle('open');
+  });
+  qsa('.filter-field select', body).forEach((sel) => {
+    sel.addEventListener('change', () => {
+      state.filters[sel.dataset.key] = sel.value || undefined;
     });
-    qsa('.filter-field select', body).forEach((sel) => {
-      sel.addEventListener('change', () => {
-        state.filters[sel.dataset.key] = sel.value || undefined;
-      });
-    });
-  }
+  });
+}
+
+// Fetches facets only if q/filters changed since the last fetch — reopening
+// the drawer without having changed anything reuses the cached result
+// instead of hitting the database again.
+async function ensureFacetsFresh() {
+  const key = JSON.stringify({ q: state.q, filters: state.filters });
+  if (lastFacets && lastFacetsKey === key) return lastFacets;
+  const facets = await Api.facets(buildSearchParams());
+  lastFacets = facets;
+  lastFacetsKey = key;
+  return facets;
+}
+
+async function openFiltersDrawer() {
   document.getElementById('filtersOverlay').classList.add('open');
   document.body.style.overflow = 'hidden';
+  const body = document.getElementById('filterDrawerBody');
+  body.innerHTML = `<div class="loading-state"><div class="spinner"></div><p>جارٍ تحميل الفلاتر…</p></div>`;
+  try {
+    const facets = await ensureFacetsFresh();
+    renderFiltersBody(facets);
+  } catch (err) {
+    body.innerHTML = `<p class="no-filters-note">تعذّر تحميل الفلاتر، حاولي مرة أخرى.</p>`;
+  }
 }
 function closeFiltersDrawer() {
   document.getElementById('filtersOverlay').classList.remove('open');
