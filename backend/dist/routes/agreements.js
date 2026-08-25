@@ -41,7 +41,7 @@ exports.agreementsRouter.post('/', auth_1.requireAuth, async (req, res) => {
     }
 });
 exports.agreementsRouter.get('/:id', async (req, res) => {
-    const { rows } = await pool_1.pool.query(`SELECT * FROM agreements WHERE id = $1 OR slug = $1`, [req.params.id]);
+    const { rows } = await pool_1.pool.query(`SELECT * FROM agreements WHERE id::text = $1 OR slug = $1`, [req.params.id]);
     if (rows.length === 0)
         return res.status(404).json({ error: 'الاتفاقية غير موجودة' });
     res.json(rows[0]);
