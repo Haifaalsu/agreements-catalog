@@ -17,6 +17,17 @@ const products_1 = require("./routes/products");
 const configurator_1 = require("./routes/configurator");
 const stats_1 = require("./routes/stats");
 const synonyms_1 = require("./routes/synonyms");
+// Safety net: an unhandled promise rejection in an async route handler
+// (e.g. a bad-input DB error the code didn't anticipate) would otherwise
+// crash the ENTIRE Node process by default (Node 15+), taking the whole
+// site down for every user for the ~20s it takes Render to restart it —
+// this is what was happening for any /api/products/:id or /api/agreements/:id
+// request with a non-UUID id. Logging instead of exiting keeps one bad
+// request from becoming a site-wide outage.
+process.on('unhandledRejection', (reason) => {
+    // eslint-disable-next-line no-console
+    console.error('Unhandled promise rejection:', reason);
+});
 const app = (0, express_1.default)();
 app.use((0, cors_1.default)());
 app.use(express_1.default.json({ limit: '2mb' }));
