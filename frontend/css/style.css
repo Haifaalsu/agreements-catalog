@@ -6,12 +6,14 @@
    ========================================================================= */
 
 :root {
-  /* --- Brand placeholder tokens (swap when official identity is ready) --- */
-  --brand-primary: #0f5c4c;
-  --brand-primary-dark: #0b4438;
-  --brand-primary-light: #e6f2ef;
-  --brand-accent: #c99a3a;
-  --brand-logo-bg: #0f5c4c;
+  /* --- Official GAMR brand tokens (sampled from "تصميم هوية الهيئة" identity deck) --- */
+  --brand-primary: #25155c;
+  --brand-primary-dark: #1c1045;
+  --brand-primary-light: #e9e8ef;
+  --brand-accent: #0bb9ba;
+  --brand-purple: #6c3f94;
+  --brand-coral: #ef5b5b;
+  --brand-logo-bg: transparent;
 
   /* --- Neutral scale --- */
   --bg: #f5f7f7;
@@ -89,14 +91,7 @@ input, select, textarea, button { font-family: inherit; font-size: inherit; }
 .brand__logo {
   width: 44px;
   height: 44px;
-  border-radius: 10px;
-  background: var(--brand-logo-bg);
-  color: #fff;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  font-weight: 700;
-  font-size: 18px;
+  object-fit: contain;
   flex-shrink: 0;
 }
 .brand__text .org-name {
