@@ -90,9 +90,19 @@ const ProductDrawer = (() => {
         html += `<div class="multi-supplier-badge">🏷️ متوفر لدى ${supplierCount} موردين — كل مورد يحتفظ ببياناته وسعره الخاص (تجميع للعرض فقط، بدون دمج بيانات)</div>`;
       }
 
+      // Price has no dedicated mapped_* column (it's not part of the common
+      // concept dictionary — see findPriceValue), so it never appeared in
+      // "البيانات الأساسية" above. For a single-supplier product that meant
+      // the price was only visible after clicking "عرض الكل" further down —
+      // easy to miss. Surface it here explicitly whenever the source row has
+      // a recognizable price/cost column, same heuristic already used for
+      // the multi-supplier table below.
+      const singlePrice = supplierCount === 1 ? findPriceValue(d.rawData) : '';
+
       html += `
         <div class="drawer-section">
           <h3>البيانات الأساسية</h3>
+          ${singlePrice ? `<div class="price-highlight">السعر: <b>${escapeHtml(singlePrice)}</b></div>` : ''}
           <table class="kv-table"><tbody>${mappedRows}</tbody></table>
         </div>`;
 
