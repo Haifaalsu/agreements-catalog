@@ -39,7 +39,7 @@ async function getProductDetail(productId, isAdmin) {
      FROM products p
      JOIN agreements a ON a.id = p.agreement_id
      JOIN sources s ON s.id = p.source_id
-     WHERE p.id = $1`, [productId]);
+     WHERE p.id::text = $1`, [productId]);
     if (rows.length === 0)
         return null;
     const row = rows[0];
