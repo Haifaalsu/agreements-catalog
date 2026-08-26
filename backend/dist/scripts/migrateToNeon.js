@@ -77,11 +77,15 @@ async function applyMigrations(target) {
         }
     }
 }
-// JSONB columns come back from node-pg as parsed JS objects/arrays; they
-// must be re-serialized to insert them into a jsonb column via a
-// parameterized query (node-pg does not auto-serialize plain objects).
+// JSONB columns (raw_data, mapped_attributes, details — always plain "{...}"
+// objects per schema) come back from node-pg as parsed JS objects and must
+// be re-serialized to insert them via a parameterized query. Native Postgres
+// array columns (e.g. header_columns TEXT[]) ALSO come back as JS arrays,
+// but must be left alone — node-pg serializes real arrays correctly on its
+// own, and JSON-stringifying one produces "[...]" which Postgres rejects as
+// a malformed array literal (it expects "{...}").
 function toParam(v) {
-    if (v !== null && typeof v === 'object' && !(v instanceof Date)) {
+    if (v !== null && typeof v === 'object' && !(v instanceof Date) && !Array.isArray(v)) {
         return JSON.stringify(v);
     }
     return v;
