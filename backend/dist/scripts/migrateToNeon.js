@@ -106,9 +106,18 @@ const SELF_REFERENCING_COLUMNS = {
 // in small keyset-paginated batches instead, so only one page of rows is
 // ever held in memory at a time, no matter how big the table is.
 const PAGE_SIZE = 200;
+// Generated columns (e.g. products.search_norm_* — computed STORED columns
+// added by 005_search_normalization.sql) can never appear in an INSERT
+// column list; Postgres computes them itself from the row's other columns.
+// Discovered dynamically per table so this stays correct if more get added.
+async function getGeneratedColumns(target, table) {
+    const { rows } = await target.query(`SELECT column_name FROM information_schema.columns WHERE table_name = $1 AND is_generated = 'ALWAYS'`, [table]);
+    return new Set(rows.map((r) => r.column_name));
+}
 async function copyTable(source, target, table) {
     const selfRefCol = SELF_REFERENCING_COLUMNS[table];
     await target.query(`TRUNCATE TABLE ${table} CASCADE`);
+    const generatedCols = await getGeneratedColumns(target, table);
     let columns = null;
     let insertSql = '';
     let lastId = null;
@@ -124,7 +133,10 @@ async function copyTable(source, target, table) {
             if (rows.length === 0)
                 break;
             if (!columns) {
-                columns = Object.keys(rows[0]);
+                columns = Object.keys(rows[0]).filter((c) => !generatedCols.has(c));
+                if (generatedCols.size > 0) {
+                    console.log(`[data]   ${table}: skipping generated column(s) ${[...generatedCols].join(', ')}`);
+                }
                 const colList = columns.map((c) => `"${c}"`).join(', ');
                 const placeholders = columns.map((_, i) => `$${i + 1}`).join(', ');
                 insertSql = `INSERT INTO ${table} (${colList}) VALUES (${placeholders})`;
