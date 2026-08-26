@@ -1,4 +1,27 @@
 "use strict";
+var __createBinding = (this && this.__createBinding) || (Object.create ? (function(o, m, k, k2) {
+    if (k2 === undefined) k2 = k;
+    var desc = Object.getOwnPropertyDescriptor(m, k);
+    if (!desc || ("get" in desc ? !m.__esModule : desc.writable || desc.configurable)) {
+      desc = { enumerable: true, get: function() { return m[k]; } };
+    }
+    Object.defineProperty(o, k2, desc);
+}) : (function(o, m, k, k2) {
+    if (k2 === undefined) k2 = k;
+    o[k2] = m[k];
+}));
+var __setModuleDefault = (this && this.__setModuleDefault) || (Object.create ? (function(o, v) {
+    Object.defineProperty(o, "default", { enumerable: true, value: v });
+}) : function(o, v) {
+    o["default"] = v;
+});
+var __importStar = (this && this.__importStar) || function (mod) {
+    if (mod && mod.__esModule) return mod;
+    var result = {};
+    if (mod != null) for (var k in mod) if (k !== "default" && Object.prototype.hasOwnProperty.call(mod, k)) __createBinding(result, mod, k);
+    __setModuleDefault(result, mod);
+    return result;
+};
 var __importDefault = (this && this.__importDefault) || function (mod) {
     return (mod && mod.__esModule) ? mod : { "default": mod };
 };
@@ -257,6 +280,20 @@ async function attempt() {
     }
 }
 async function main() {
+    // One-off escape hatch: when set, run the Render→Neon data migration
+    // instead of the normal seed-check, then return without touching
+    // DATABASE_URL's target at all (server.js still boots against the OLD
+    // database right after this). The actual cutover to Neon happens later,
+    // as a separate env-var change (DATABASE_URL -> the Neon URL) followed by
+    // another deploy with this flag removed — kept as two steps on purpose so
+    // the migration can be verified before traffic ever moves.
+    if (process.env.RUN_NEON_MIGRATION === 'true') {
+        console.log('[loadDump] RUN_NEON_MIGRATION=true — running one-off migration to Neon...');
+        const { migrateToNeon } = await Promise.resolve().then(() => __importStar(require('./migrateToNeon')));
+        await migrateToNeon();
+        console.log('[loadDump] Neon migration finished — skipping normal seed-check this boot.');
+        return;
+    }
     const MAX_ATTEMPTS = 3;
     for (let n = 1; n <= MAX_ATTEMPTS; n++) {
         try {
