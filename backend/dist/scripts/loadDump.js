@@ -47,6 +47,7 @@ Object.defineProperty(exports, "__esModule", { value: true });
  * behind a proxy that resets the connection on an oversized single query.
  */
 const fs_1 = __importDefault(require("fs"));
+const http_1 = __importDefault(require("http"));
 const path_1 = __importDefault(require("path"));
 const readline_1 = __importDefault(require("readline"));
 const zlib_1 = __importDefault(require("zlib"));
@@ -289,9 +290,36 @@ async function main() {
     // the migration can be verified before traffic ever moves.
     if (process.env.RUN_NEON_MIGRATION === 'true') {
         console.log('[loadDump] RUN_NEON_MIGRATION=true — running one-off migration to Neon...');
+        // Render kills a web service's deploy ("port scan timeout") if it
+        // doesn't bind a port within a few minutes. This migration can easily
+        // run longer than that (thousands of product rows), so bind a trivial
+        // placeholder HTTP server immediately to satisfy Render's health check,
+        // then run the real migration in the background. The placeholder just
+        // reports status and stays up after the migration finishes/fails so the
+        // deploy stays "live" instead of being killed or restart-looping.
+        let migrationDone = false;
+        let migrationError = null;
+        const placeholderPort = Number(process.env.PORT) || 4000;
+        const placeholderServer = http_1.default.createServer((_req, res) => {
+            res.writeHead(200, { 'Content-Type': 'text/plain; charset=utf-8' });
+            res.end(migrationError
+                ? `Neon migration FAILED: ${String(migrationError)}\n`
+                : migrationDone
+                    ? 'Neon migration complete.\n'
+                    : 'Neon migration running...\n');
+        });
+        await new Promise((resolve) => placeholderServer.listen(placeholderPort, resolve));
+        console.log(`[loadDump] placeholder server listening on :${placeholderPort} (keeps Render's port check happy during migration)`);
         const { migrateToNeon } = await Promise.resolve().then(() => __importStar(require('./migrateToNeon')));
-        await migrateToNeon();
-        console.log('[loadDump] Neon migration finished — skipping normal seed-check this boot.');
+        try {
+            await migrateToNeon();
+            migrationDone = true;
+            console.log('[loadDump] Neon migration finished successfully. ✅ (placeholder server stays up — trigger a normal deploy to cut over)');
+        }
+        catch (err) {
+            migrationError = err;
+            console.error('[loadDump] Neon migration FAILED:', err);
+        }
         return;
     }
     const MAX_ATTEMPTS = 3;
