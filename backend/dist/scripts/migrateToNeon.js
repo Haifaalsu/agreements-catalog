@@ -98,40 +98,62 @@ function toParam(v) {
 const SELF_REFERENCING_COLUMNS = {
     sources: 'superseded_by',
 };
+// Render's free instance has a 512MB heap ceiling. Some tables (products,
+// import_logs, ...) hold large JSONB blobs (raw_data, mapped_attributes) per
+// row, so pulling an entire table into memory with one `SELECT *` can blow
+// the heap once row counts climb into the thousands — this is what crashed
+// the "products" copy (OOM right after "sources" finished). Fetch and insert
+// in small keyset-paginated batches instead, so only one page of rows is
+// ever held in memory at a time, no matter how big the table is.
+const PAGE_SIZE = 200;
 async function copyTable(source, target, table) {
-    const { rows } = await source.query(`SELECT * FROM ${table}`);
-    console.log(`[data] ${table}: ${rows.length} row(s) to copy`);
-    await target.query(`TRUNCATE TABLE ${table} CASCADE`);
-    if (rows.length === 0)
-        return;
     const selfRefCol = SELF_REFERENCING_COLUMNS[table];
-    const columns = Object.keys(rows[0]);
-    const colList = columns.map((c) => `"${c}"`).join(', ');
-    const placeholders = columns.map((_, i) => `$${i + 1}`).join(', ');
-    const insertSql = `INSERT INTO ${table} (${colList}) VALUES (${placeholders})`;
+    await target.query(`TRUNCATE TABLE ${table} CASCADE`);
+    let columns = null;
+    let insertSql = '';
+    let lastId = null;
+    let totalCopied = 0;
+    const selfRefPairs = [];
     await target.query('BEGIN');
     try {
-        let done = 0;
-        for (const row of rows) {
-            const values = columns.map((c) => {
-                if (selfRefCol && c === selfRefCol)
-                    return null; // pass 1: null it out
-                return toParam(row[c]);
-            });
-            await target.query(insertSql, values);
-            done++;
-            if (done % 1000 === 0)
-                console.log(`[data]   ${table}: ${done}/${rows.length}`);
+        for (;;) {
+            const result = lastId === null
+                ? await source.query(`SELECT * FROM ${table} ORDER BY id LIMIT ${PAGE_SIZE}`)
+                : await source.query(`SELECT * FROM ${table} WHERE id::text > $1 ORDER BY id LIMIT ${PAGE_SIZE}`, [lastId]);
+            const rows = result.rows;
+            if (rows.length === 0)
+                break;
+            if (!columns) {
+                columns = Object.keys(rows[0]);
+                const colList = columns.map((c) => `"${c}"`).join(', ');
+                const placeholders = columns.map((_, i) => `$${i + 1}`).join(', ');
+                insertSql = `INSERT INTO ${table} (${colList}) VALUES (${placeholders})`;
+            }
+            for (const row of rows) {
+                const values = columns.map((c) => {
+                    if (selfRefCol && c === selfRefCol)
+                        return null; // pass 1: null it out
+                    return toParam(row[c]);
+                });
+                await target.query(insertSql, values);
+                totalCopied++;
+                if (selfRefCol && row[selfRefCol] !== null) {
+                    selfRefPairs.push({ id: row.id, value: row[selfRefCol] });
+                }
+            }
+            lastId = String(rows[rows.length - 1].id);
+            console.log(`[data]   ${table}: ${totalCopied} copied so far...`);
+            if (rows.length < PAGE_SIZE)
+                break;
         }
-        if (selfRefCol) {
-            const toRestore = rows.filter((r) => r[selfRefCol] !== null);
-            console.log(`[data]   ${table}: restoring ${toRestore.length} self-referencing "${selfRefCol}" value(s)...`);
-            for (const row of toRestore) {
-                await target.query(`UPDATE ${table} SET "${selfRefCol}" = $1 WHERE id = $2`, [row[selfRefCol], row.id]);
+        if (selfRefCol && selfRefPairs.length > 0) {
+            console.log(`[data]   ${table}: restoring ${selfRefPairs.length} self-referencing "${selfRefCol}" value(s)...`);
+            for (const p of selfRefPairs) {
+                await target.query(`UPDATE ${table} SET "${selfRefCol}" = $1 WHERE id = $2`, [p.value, p.id]);
             }
         }
         await target.query('COMMIT');
-        console.log(`[data]   ${table}: done (${rows.length})`);
+        console.log(`[data]   ${table}: done (${totalCopied})`);
     }
     catch (err) {
         await target.query('ROLLBACK');
