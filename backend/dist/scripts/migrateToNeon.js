@@ -90,12 +90,21 @@ function toParam(v) {
     }
     return v;
 }
+// Tables with a self-referential FK column (points back at the same table's
+// primary key) need two passes: insert every row with that column forced to
+// NULL first (so no row is ever blocked waiting on a sibling that hasn't
+// been inserted yet), then a follow-up UPDATE pass restores the real values
+// once all rows in the table exist.
+const SELF_REFERENCING_COLUMNS = {
+    sources: 'superseded_by',
+};
 async function copyTable(source, target, table) {
     const { rows } = await source.query(`SELECT * FROM ${table}`);
     console.log(`[data] ${table}: ${rows.length} row(s) to copy`);
     await target.query(`TRUNCATE TABLE ${table} CASCADE`);
     if (rows.length === 0)
         return;
+    const selfRefCol = SELF_REFERENCING_COLUMNS[table];
     const columns = Object.keys(rows[0]);
     const colList = columns.map((c) => `"${c}"`).join(', ');
     const placeholders = columns.map((_, i) => `$${i + 1}`).join(', ');
@@ -104,11 +113,22 @@ async function copyTable(source, target, table) {
     try {
         let done = 0;
         for (const row of rows) {
-            const values = columns.map((c) => toParam(row[c]));
+            const values = columns.map((c) => {
+                if (selfRefCol && c === selfRefCol)
+                    return null; // pass 1: null it out
+                return toParam(row[c]);
+            });
             await target.query(insertSql, values);
             done++;
             if (done % 1000 === 0)
                 console.log(`[data]   ${table}: ${done}/${rows.length}`);
+        }
+        if (selfRefCol) {
+            const toRestore = rows.filter((r) => r[selfRefCol] !== null);
+            console.log(`[data]   ${table}: restoring ${toRestore.length} self-referencing "${selfRefCol}" value(s)...`);
+            for (const row of toRestore) {
+                await target.query(`UPDATE ${table} SET "${selfRefCol}" = $1 WHERE id = $2`, [row[selfRefCol], row.id]);
+            }
         }
         await target.query('COMMIT');
         console.log(`[data]   ${table}: done (${rows.length})`);
