@@ -373,6 +373,69 @@ async function main() {
         }
         return;
     }
+    // One-off escape hatch: report current database/table/index sizes, and
+    // reclaim disk space via VACUUM FULL. Non-destructive — VACUUM never
+    // removes live rows, it only physically compacts pages that DELETE/UPDATE
+    // already marked reusable (e.g. the 6,574-row RUN_PRODUCT_CLEANUP delete
+    // left that space "free but still allocated" until a real VACUUM FULL
+    // runs). Useful when a free-tier storage quota (e.g. Neon's 0.5 GB) is
+    // close to full. Reports sizes before AND after so the effect is visible
+    // in the logs without needing a separate confirm step.
+    if (process.env.RUN_DB_MAINTENANCE === 'true') {
+        console.log('[loadDump] RUN_DB_MAINTENANCE=true — reporting sizes and running VACUUM FULL...');
+        const client = makeClient();
+        await client.connect();
+        try {
+            const { rows: dbSizeBefore } = await client.query(`SELECT pg_size_pretty(pg_database_size(current_database())) AS size`);
+            console.log(`[maintenance] database size BEFORE: ${dbSizeBefore[0].size}`);
+            const { rows: relSizesBefore } = await client.query(`
+        SELECT relname,
+               pg_size_pretty(pg_total_relation_size(c.oid)) AS total_size,
+               pg_size_pretty(pg_relation_size(c.oid)) AS table_size,
+               (SELECT count(*) FROM pg_stat_user_tables t WHERE t.relname = c.relname AND t.n_dead_tup > 0) AS has_dead_tuples
+        FROM pg_class c
+        JOIN pg_namespace n ON n.oid = c.relnamespace
+        WHERE n.nspname = 'public' AND c.relkind = 'r'
+        ORDER BY pg_total_relation_size(c.oid) DESC
+        LIMIT 15
+      `);
+            console.log('[maintenance] largest tables (with indexes+toast) BEFORE:', JSON.stringify(relSizesBefore));
+            const { rows: deadTuples } = await client.query(`
+        SELECT relname, n_dead_tup, n_live_tup
+        FROM pg_stat_user_tables
+        WHERE n_dead_tup > 0
+        ORDER BY n_dead_tup DESC
+      `);
+            console.log('[maintenance] dead tuple counts:', JSON.stringify(deadTuples));
+            // VACUUM FULL requires no surrounding transaction; run one statement
+            // at a time, and don't let one table's failure block the others.
+            for (const row of relSizesBefore) {
+                try {
+                    console.log(`[maintenance] VACUUM (FULL, ANALYZE) ${row.relname} ...`);
+                    await client.query(`VACUUM (FULL, ANALYZE) "${row.relname}"`);
+                }
+                catch (err) {
+                    console.error(`[maintenance]   failed on ${row.relname}:`, err);
+                }
+            }
+            const { rows: dbSizeAfter } = await client.query(`SELECT pg_size_pretty(pg_database_size(current_database())) AS size`);
+            console.log(`[maintenance] database size AFTER: ${dbSizeAfter[0].size}`);
+            const { rows: relSizesAfter } = await client.query(`
+        SELECT relname, pg_size_pretty(pg_total_relation_size(c.oid)) AS total_size
+        FROM pg_class c
+        JOIN pg_namespace n ON n.oid = c.relnamespace
+        WHERE n.nspname = 'public' AND c.relkind = 'r'
+        ORDER BY pg_total_relation_size(c.oid) DESC
+        LIMIT 15
+      `);
+            console.log('[maintenance] largest tables AFTER:', JSON.stringify(relSizesAfter));
+            console.log('[maintenance] done. ✅');
+        }
+        finally {
+            await client.end().catch(() => { });
+        }
+        return;
+    }
     const MAX_ATTEMPTS = 3;
     for (let n = 1; n <= MAX_ATTEMPTS; n++) {
         try {
