@@ -328,6 +328,51 @@ async function main() {
         }
         return;
     }
+    // One-off escape hatch: audit (and optionally delete) the "dead" product
+    // rows left behind by the import pipeline's replace flow. Replacing a
+    // source only ever marks the OLD sources row status='replaced' — it never
+    // deletes that source's products rows — so every re-upload of the same
+    // Excel sheet over the project's history left its previous rows behind
+    // permanently. 'archived' sources (e.g. deliberately-retired old data,
+    // hidden from users via is_visible_to_users rather than by deletion) are
+    // a separate, intentional state and are left untouched here — only
+    // status='replaced' is dead weight with no remaining purpose.
+    //
+    // Two flags on purpose, same pattern as the Neon migration: set only
+    // RUN_PRODUCT_CLEANUP=true first to get a row-count report in the logs
+    // with nothing deleted, then also set RUN_PRODUCT_CLEANUP_CONFIRM=true and
+    // redeploy to actually run the DELETE, once the reported counts have been
+    // reviewed.
+    if (process.env.RUN_PRODUCT_CLEANUP === 'true') {
+        console.log('[loadDump] RUN_PRODUCT_CLEANUP=true — auditing product rows by source status...');
+        const client = makeClient();
+        await client.connect();
+        try {
+            const { rows: byStatus } = await client.query(`
+        SELECT s.status,
+               count(DISTINCT s.id)::int AS source_count,
+               count(p.id)::int AS product_count
+        FROM sources s
+        LEFT JOIN products p ON p.source_id = s.id
+        GROUP BY s.status
+        ORDER BY s.status
+      `);
+            console.log('[cleanup] product rows by source status:', JSON.stringify(byStatus));
+            const confirm = process.env.RUN_PRODUCT_CLEANUP_CONFIRM === 'true';
+            if (!confirm) {
+                console.log('[cleanup] DRY RUN ONLY — nothing deleted. Review the counts above, then set ' +
+                    'RUN_PRODUCT_CLEANUP_CONFIRM=true and redeploy to delete rows under replaced sources.');
+            }
+            else {
+                const result = await client.query(`DELETE FROM products WHERE source_id IN (SELECT id FROM sources WHERE status = 'replaced')`);
+                console.log(`[cleanup] deleted ${result.rowCount} product row(s) belonging to replaced sources. ✅`);
+            }
+        }
+        finally {
+            await client.end().catch(() => { });
+        }
+        return;
+    }
     const MAX_ATTEMPTS = 3;
     for (let n = 1; n <= MAX_ATTEMPTS; n++) {
         try {
