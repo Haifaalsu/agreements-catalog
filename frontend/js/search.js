@@ -356,7 +356,7 @@ async function loadConfiguratorLink() {
     const cfg = agreements.find((a) => a.display_type === 'configurator');
     if (!cfg) return;
     const wrap = document.getElementById('configuratorLinkWrap');
-    wrap.innerHTML = `<button class="configurator-link" id="openConfiguratorBtn">⚙️ خدمات الدوائر الرقمية — افتح المُهيّئ</button>`;
+    wrap.innerHTML = `<button class="configurator-link" id="openConfiguratorBtn">⚙️ ابحث في خدمات الدوائر الرقمية</button>`;
     document.getElementById('openConfiguratorBtn').addEventListener('click', () => Configurator.open());
   } catch { /* non-critical */ }
 }
