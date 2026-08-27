@@ -373,6 +373,47 @@ async function main() {
         }
         return;
     }
+    // One-off escape hatch: delete a whole agreement (by slug) and everything
+    // under it — sources, products, import batches, logs — via ON DELETE
+    // CASCADE from the agreements table. Same two-flag dry-run/confirm pattern
+    // as the product cleanup above: RUN_DELETE_AGREEMENT=true alone only
+    // reports what would be deleted; add RUN_DELETE_AGREEMENT_CONFIRM=true to
+    // actually run it. Target slug is fixed below rather than read from env
+    // since this is meant to be reviewed in code before every use, not passed
+    // arbitrarily.
+    if (process.env.RUN_DELETE_AGREEMENT === 'true') {
+        const targetSlug = 'labor-support';
+        console.log(`[loadDump] RUN_DELETE_AGREEMENT=true — auditing agreement slug="${targetSlug}"...`);
+        const client = makeClient();
+        await client.connect();
+        try {
+            const { rows: agRows } = await client.query(`SELECT id, name_ar, slug, status FROM agreements WHERE slug = $1`, [targetSlug]);
+            if (agRows.length === 0) {
+                console.log(`[delete-agreement] no agreement found with slug="${targetSlug}" — nothing to do.`);
+            }
+            else {
+                const ag = agRows[0];
+                const { rows: counts } = await client.query(`SELECT
+             (SELECT count(*)::int FROM sources WHERE agreement_id = $1) AS source_count,
+             (SELECT count(*)::int FROM products WHERE agreement_id = $1) AS product_count,
+             (SELECT count(*)::int FROM import_batches WHERE agreement_id = $1) AS batch_count`, [ag.id]);
+                console.log(`[delete-agreement] found: ${JSON.stringify(ag)}`);
+                console.log(`[delete-agreement] will cascade-delete: ${JSON.stringify(counts[0])}`);
+                const confirm = process.env.RUN_DELETE_AGREEMENT_CONFIRM === 'true';
+                if (!confirm) {
+                    console.log('[delete-agreement] DRY RUN ONLY — nothing deleted. Review the counts above, then set RUN_DELETE_AGREEMENT_CONFIRM=true and redeploy to actually delete.');
+                }
+                else {
+                    await client.query(`DELETE FROM agreements WHERE id = $1`, [ag.id]);
+                    console.log(`[delete-agreement] deleted agreement "${ag.name_ar}" (${ag.slug}) and all its data. ✅`);
+                }
+            }
+        }
+        finally {
+            await client.end().catch(() => { });
+        }
+        return;
+    }
     // One-off escape hatch: read-only capacity report — total DB size plus
     // active product-row counts per agreement. Used to decide, before any
     // import, whether the free-tier storage quota has room for new agreements
