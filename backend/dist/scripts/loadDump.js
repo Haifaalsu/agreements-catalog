@@ -373,6 +373,36 @@ async function main() {
         }
         return;
     }
+    // One-off escape hatch: read-only capacity report — total DB size plus
+    // active product-row counts per agreement. Used to decide, before any
+    // import, whether the free-tier storage quota has room for new agreements
+    // (and how much a removed agreement would actually free up). Makes no
+    // changes of any kind.
+    if (process.env.RUN_CAPACITY_CHECK === 'true') {
+        console.log('[loadDump] RUN_CAPACITY_CHECK=true — reporting DB size and per-agreement row counts...');
+        const client = makeClient();
+        await client.connect();
+        try {
+            const { rows: dbSize } = await client.query(`SELECT pg_size_pretty(pg_database_size(current_database())) AS pretty, pg_database_size(current_database()) AS bytes`);
+            console.log(`[capacity] database size: ${dbSize[0].pretty} (${dbSize[0].bytes} bytes)`);
+            const { rows: perAgreement } = await client.query(`
+        SELECT a.name_ar, a.slug, a.status AS agreement_status, count(p.id)::int AS active_products
+        FROM agreements a
+        LEFT JOIN sources s ON s.agreement_id = a.id AND s.status = 'active'
+        LEFT JOIN products p ON p.source_id = s.id
+        GROUP BY a.name_ar, a.slug, a.status
+        ORDER BY active_products DESC
+      `);
+            console.log('[capacity] active product rows per agreement:', JSON.stringify(perAgreement));
+            const { rows: totalRow } = await client.query(`SELECT count(*)::int AS n FROM products`);
+            console.log(`[capacity] total product rows (all statuses, incl. replaced): ${totalRow[0].n}`);
+            console.log('[capacity] done. ✅');
+        }
+        finally {
+            await client.end().catch(() => { });
+        }
+        return;
+    }
     // One-off escape hatch: report current database/table/index sizes, and
     // reclaim disk space via VACUUM FULL. Non-destructive — VACUUM never
     // removes live rows, it only physically compacts pages that DELETE/UPDATE
