@@ -229,8 +229,14 @@ async function streamLoad(client) {
     return executed;
 }
 function makeClient() {
+    // Same CUTOVER_TO_NEON switch as db/pool.ts — once the flag is set this
+    // script's own empty-check/seed-load logic also talks to Neon instead of
+    // the old Render Postgres, so nothing here still depends on the old
+    // database once it's flipped (it can even disappear afterward safely).
+    const useNeon = process.env.CUTOVER_TO_NEON === 'true';
     return new pg_1.Client({
-        connectionString: process.env.DATABASE_URL,
+        connectionString: useNeon ? process.env.TARGET_DATABASE_URL : process.env.DATABASE_URL,
+        ssl: useNeon ? { rejectUnauthorized: false } : undefined,
         keepAlive: true,
         keepAliveInitialDelayMillis: 5000,
         // Client-side safety net: some managed Postgres connections silently
