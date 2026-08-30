@@ -40,11 +40,18 @@ const upload = (0, multer_1.default)({
 exports.importsRouter.post('/upload', auth_1.requireAuth, upload.single('file'), async (req, res) => {
     if (!req.file)
         return res.status(400).json({ error: 'لم يتم إرفاق ملف' });
+    // multer/busboy decode multipart field values (including the filename) as
+    // latin1 by default, so any non-ASCII filename (e.g. Arabic) arrives here
+    // mangled — browsers actually send UTF-8 bytes. Reverse the mis-decode
+    // once, right at the source, so everything downstream (DB storage, API
+    // responses, the UI) sees the correct original name. Safe no-op for
+    // plain-ASCII filenames.
+    const originalFileName = Buffer.from(req.file.originalname, 'latin1').toString('utf8');
     try {
         const inspection = await (0, importPipeline_1.inspectUploadedFile)(req.file.path);
         res.json({
             storagePath: req.file.path,
-            originalFileName: req.file.originalname,
+            originalFileName,
             sheets: inspection.sheets,
         });
     }
