@@ -396,14 +396,21 @@ async function main() {
                 const { rows: counts } = await client.query(`SELECT
              (SELECT count(*)::int FROM sources WHERE agreement_id = $1) AS source_count,
              (SELECT count(*)::int FROM products WHERE agreement_id = $1) AS product_count,
-             (SELECT count(*)::int FROM import_batches WHERE agreement_id = $1) AS batch_count`, [ag.id]);
+             (SELECT count(*)::int FROM import_batches WHERE agreement_id = $1) AS batch_count,
+             (SELECT count(*)::int FROM import_logs WHERE agreement_id = $1) AS log_count`, [ag.id]);
                 console.log(`[delete-agreement] found: ${JSON.stringify(ag)}`);
                 console.log(`[delete-agreement] will cascade-delete: ${JSON.stringify(counts[0])}`);
+                console.log('[delete-agreement] note: import_logs.agreement_id has no ON DELETE CASCADE (and is otherwise nullable) — matching rows will be detached (set to NULL) rather than deleted, so audit history is kept.');
                 const confirm = process.env.RUN_DELETE_AGREEMENT_CONFIRM === 'true';
                 if (!confirm) {
                     console.log('[delete-agreement] DRY RUN ONLY — nothing deleted. Review the counts above, then set RUN_DELETE_AGREEMENT_CONFIRM=true and redeploy to actually delete.');
                 }
                 else {
+                    // import_logs.agreement_id lacks ON DELETE CASCADE, so the DELETE
+                    // below would otherwise fail with a foreign-key violation (as it
+                    // did on the first attempt at this). Detach those log rows first
+                    // instead of deleting them, to keep the audit trail intact.
+                    await client.query(`UPDATE import_logs SET agreement_id = NULL WHERE agreement_id = $1`, [ag.id]);
                     await client.query(`DELETE FROM agreements WHERE id = $1`, [ag.id]);
                     console.log(`[delete-agreement] deleted agreement "${ag.name_ar}" (${ag.slug}) and all its data. ✅`);
                 }
