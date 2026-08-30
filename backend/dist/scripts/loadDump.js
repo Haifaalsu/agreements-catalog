@@ -400,19 +400,39 @@ async function main() {
              (SELECT count(*)::int FROM import_logs WHERE agreement_id = $1) AS log_count`, [ag.id]);
                 console.log(`[delete-agreement] found: ${JSON.stringify(ag)}`);
                 console.log(`[delete-agreement] will cascade-delete: ${JSON.stringify(counts[0])}`);
-                console.log('[delete-agreement] note: import_logs.agreement_id has no ON DELETE CASCADE (and is otherwise nullable) — matching rows will be detached (set to NULL) rather than deleted, so audit history is kept.');
+                console.log('[delete-agreement] note: import_logs (agreement_id/source_id/batch_id) and sources.superseded_by / import_batches.committed_source_id have no ON DELETE CASCADE — matching references will be detached (set to NULL) rather than blocking the delete, so audit history is kept.');
                 const confirm = process.env.RUN_DELETE_AGREEMENT_CONFIRM === 'true';
                 if (!confirm) {
                     console.log('[delete-agreement] DRY RUN ONLY — nothing deleted. Review the counts above, then set RUN_DELETE_AGREEMENT_CONFIRM=true and redeploy to actually delete.');
                 }
                 else {
-                    // import_logs.agreement_id lacks ON DELETE CASCADE, so the DELETE
-                    // below would otherwise fail with a foreign-key violation (as it
-                    // did on the first attempt at this). Detach those log rows first
-                    // instead of deleting them, to keep the audit trail intact.
-                    await client.query(`UPDATE import_logs SET agreement_id = NULL WHERE agreement_id = $1`, [ag.id]);
-                    await client.query(`DELETE FROM agreements WHERE id = $1`, [ag.id]);
-                    console.log(`[delete-agreement] deleted agreement "${ag.name_ar}" (${ag.slug}) and all its data. ✅`);
+                    // Full audit of backend/migrations/001_init.sql found every
+                    // nullable, non-cascading FK in the schema that could point at
+                    // this agreement's rows. All of them must be detached BEFORE the
+                    // DELETE FROM agreements below, while the referenced sources/
+                    // import_batches rows still exist for these subqueries to match
+                    // against — otherwise Postgres throws a foreign-key violation
+                    // (23503) that, left uncaught, crashes the whole deploy (this
+                    // happened twice already: once for import_logs.agreement_id, once
+                    // for import_logs.source_id). The try/catch around the whole
+                    // delete is an extra safety net in case any FK was still missed —
+                    // it logs and aborts cleanly instead of taking the site down.
+                    try {
+                        await client.query(`UPDATE import_logs
+               SET agreement_id = NULL, source_id = NULL, batch_id = NULL
+               WHERE agreement_id = $1
+                  OR source_id IN (SELECT id FROM sources WHERE agreement_id = $1)
+                  OR batch_id IN (SELECT id FROM import_batches WHERE agreement_id = $1)`, [ag.id]);
+                        await client.query(`UPDATE sources SET superseded_by = NULL
+               WHERE superseded_by IN (SELECT id FROM sources WHERE agreement_id = $1)`, [ag.id]);
+                        await client.query(`UPDATE import_batches SET committed_source_id = NULL
+               WHERE committed_source_id IN (SELECT id FROM sources WHERE agreement_id = $1)`, [ag.id]);
+                        await client.query(`DELETE FROM agreements WHERE id = $1`, [ag.id]);
+                        console.log(`[delete-agreement] deleted agreement "${ag.name_ar}" (${ag.slug}) and all its data. ✅`);
+                    }
+                    catch (err) {
+                        console.error('[delete-agreement] a step failed (likely an FK we have not accounted for yet) — the DELETE either never ran or was rejected outright, so the agreement and its data are still intact. Aborting cleanly without crashing the process:', err);
+                    }
                 }
             }
         }
