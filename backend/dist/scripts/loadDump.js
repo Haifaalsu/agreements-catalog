@@ -534,6 +534,69 @@ async function main() {
         }
         return;
     }
+    // One-off escape hatch: fix mojibake in source filenames caused by a
+    // backend bug (multer/busboy decode multipart originalname as latin1, so
+    // any non-ASCII — e.g. Arabic — filename got mangled on upload, e.g.
+    // "Ø¹Ø±ÙˆØ¶..." instead of the real Arabic name). The bug itself is fixed
+    // in imports.ts going forward; this block repairs already-corrupted
+    // values already sitting in import_batches.original_file_name and
+    // sources.original_file_name by reversing the mis-decode:
+    // Buffer.from(garbled, 'latin1').toString('utf8'). Dry run by default
+    // (RUN_FIX_FILENAME_ENCODING=true only logs what WOULD change); add
+    // RUN_FIX_FILENAME_ENCODING_CONFIRM=true to actually update the rows.
+    if (process.env.RUN_FIX_FILENAME_ENCODING === 'true') {
+        console.log('[loadDump] RUN_FIX_FILENAME_ENCODING=true — scanning for mojibake filenames...');
+        const client = makeClient();
+        await client.connect();
+        try {
+            const hasArabic = (s) => /[؀-ۿ]/.test(s);
+            const looksFixable = (name) => {
+                if (!name)
+                    return null;
+                try {
+                    const fixed = Buffer.from(name, 'latin1').toString('utf8');
+                    if (fixed !== name && !fixed.includes('�') && hasArabic(fixed) && !hasArabic(name)) {
+                        return fixed;
+                    }
+                    return null;
+                }
+                catch {
+                    return null;
+                }
+            };
+            const confirm = process.env.RUN_FIX_FILENAME_ENCODING_CONFIRM === 'true';
+            for (const table of ['import_batches', 'sources']) {
+                const { rows } = await client.query(`SELECT id, original_file_name FROM ${table}`);
+                const fixes = [];
+                for (const row of rows) {
+                    const fixed = looksFixable(row.original_file_name);
+                    if (fixed)
+                        fixes.push({ id: row.id, from: row.original_file_name, to: fixed });
+                }
+                console.log(`[fix-filename-encoding] ${table}: ${fixes.length} row(s) look mis-encoded:`, JSON.stringify(fixes));
+                if (confirm) {
+                    for (const f of fixes) {
+                        await client.query(`UPDATE ${table} SET original_file_name = $1 WHERE id = $2`, [f.to, f.id]);
+                    }
+                    if (fixes.length > 0)
+                        console.log(`[fix-filename-encoding] ${table}: updated ${fixes.length} row(s). ✅`);
+                }
+            }
+            if (!confirm) {
+                console.log('[fix-filename-encoding] DRY RUN ONLY — nothing changed. Review the lists above, then set RUN_FIX_FILENAME_ENCODING_CONFIRM=true and redeploy to apply.');
+            }
+            else {
+                console.log('[fix-filename-encoding] done. ✅');
+            }
+        }
+        catch (err) {
+            console.error('[fix-filename-encoding] failed (nothing further attempted):', err);
+        }
+        finally {
+            await client.end().catch(() => { });
+        }
+        return;
+    }
     const MAX_ATTEMPTS = 3;
     for (let n = 1; n <= MAX_ATTEMPTS; n++) {
         try {
